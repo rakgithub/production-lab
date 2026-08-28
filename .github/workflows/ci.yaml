@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - Check out code
+      - Set up Node.js
+      - Enable the repository's pnpm version
+      - Restore pnpm cache
+      - Install with frozen lockfile
+      - Run lint
+      - Run typecheck
+      - Run tests
+      - Build

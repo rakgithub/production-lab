@@ -321,7 +321,7 @@ Make the repository provide one reliable development and CI workflow before feat
   - **How:** Keep `strict`, `noUncheckedIndexedAccess`, and `noImplicitOverride`. Align the API and UI settings. Extract a shared config only after two or more configs contain meaningful duplicated rules.
   - **Check:** Each workspace passes `typecheck`; lint behavior is consistent for equivalent code.
 
-- [ ] Clean generated starter and debug artifacts.
+- [0] Clean generated starter and debug artifacts.
   - **Why:** Tutorial stories and local logs obscure the real design system and create noisy reviews.
   - **How:** Remove generated examples only after the first real story replaces them. Ignore local logs, coverage, Turbo cache, Next output, Playwright output, and all `node_modules` directories.
   - **Check:** A fresh build/test run leaves `git status` clean.
