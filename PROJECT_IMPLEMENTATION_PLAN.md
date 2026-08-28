@@ -331,22 +331,22 @@ Make the repository provide one reliable development and CI workflow before feat
   - **How:** Add `.env.example` files without secrets, validate variables at process startup, and expose only explicitly public browser variables.
   - **Check:** Missing required configuration fails early with a useful message; secrets do not appear in client bundles or logs.
 
-- [ ] Add a minimal CI workflow.
+- [0] Add a minimal CI workflow.
   - **Why:** Reproducibility is only proven on a clean machine.
   - **How:** Run `pnpm install --frozen-lockfile`, lint, typecheck, unit/integration tests, and build. Cache pnpm’s store and optionally Turbo outputs; do not cache undeclared nondeterministic outputs.
   - **Check:** CI passes from a fresh clone and fails when `package.json` and `pnpm-lock.yaml` disagree.
 
-- [ ] Establish branch/PR quality rules.
+- [0] Establish branch/PR quality rules.
   - **Why:** Small reviewable changes make a learning project easier to debug and explain in interviews.
   - **How:** Require a problem statement, scope, verification commands, screenshots for UI changes, and an ADR link for architecture changes.
   - **Check:** A reviewer can verify a PR without reconstructing the author’s intent.
 
 ### Exit criteria
 
-- [ ] One command starts the necessary local services.
-- [ ] All root quality commands pass.
-- [ ] A fresh clone installs with a frozen lockfile.
-- [ ] Running the commands does not create untracked noise.
+- [0] One command starts the necessary local services.
+- [0] All root quality commands pass.
+- [0] A fresh clone installs with a frozen lockfile.
+- [0] Running the commands does not create untracked noise.
 
 ---
 
