@@ -70,6 +70,49 @@ apps/api (Node.js GraphQL BFF)
 | `packages/ui` | reusable Button, Badge, Dialog, Table, Skeleton | project fetching, route state, GraphQL operations |
 | `apps/voice-agent` later | LiveKit agent process | duplicate Project/Activity service logic |
 
+## Enterprise architecture position
+
+Start with a **modular monolith inside each deployable application**. `apps/shell` and `apps/api` are separate deployables because they have different runtime responsibilities, but neither should be split into more services until team ownership, scaling, security, or release data proves that a split is useful.
+
+Use this dependency direction inside the API:
+
+```text
+transport (GraphQL/HTTP)
+  → application use cases
+    → domain rules and ports
+      ← infrastructure adapters (backend HTTP clients, database, event transport)
+```
+
+The composition root connects those layers at startup. Domain and application modules must not import GraphQL resolver types, Yoga, database clients, or backend-service SDKs. This keeps business behavior testable and allows an in-memory adapter to be replaced without rewriting resolvers.
+
+Architectural rules:
+
+- organize by business capability (`projects`, `activity`, `assistant`), then by layer inside the capability;
+- keep cross-feature imports explicit and one-directional; enforce them with ESLint import rules when the module count grows;
+- do not create a generic `shared`, `common`, or `utils` package as a dumping ground;
+- do not import runtime code between `apps/shell` and `apps/api`; they communicate through the GraphQL/HTTP contract only;
+- keep tenant, actor, authorization, request ID, and trace context available at the application boundary, even if the first local version uses a development actor;
+- record consequential architecture choices as ADRs, including API separation, authentication/session model, persistence, subscriptions, AI provider, and any microfrontend split.
+
+Because this API is a BFF over backend services, define source-of-truth ownership explicitly:
+
+- the backend service that owns Project data also owns authoritative project invariants, persistence transactions, version checks, and durable audit/event creation;
+- the GraphQL BFF owns the client-oriented schema, aggregation, input/response mapping, request authorization orchestration, deadlines, and safe error translation;
+- the BFF may apply presentation/workflow policy, but must not copy the same authoritative business rule into a second writable datastore;
+- a BFF cache or read model is disposable and never becomes an accidental system of record;
+- if no downstream Project service exists yet, the in-memory repository is a temporary local implementation. Before adding a database to `apps/api`, make an ADR that deliberately assigns Project ownership to this service.
+
+Enterprise quality is expressed through measurable behavior, not extra layers:
+
+| Quality | Initial requirement |
+| --- | --- |
+| Security | deny by default; validate input; authorize in application/domain policy; never expose secrets or internal errors |
+| Availability | liveness/readiness probes, graceful shutdown, bounded downstream timeouts, rollback plan |
+| Data integrity | atomic mutations, optimistic concurrency, idempotency where retries are possible, audit records |
+| Evolvability | additive GraphQL changes, generated contract artifact, schema-diff CI gate |
+| Operability | structured logs, traces, metrics, correlation IDs, documented SLOs and alerts |
+| Performance | bounded pagination, request-scoped batching, measured query-cost limits, load tests for critical paths |
+
 ---
 
 # 2. Stage 0 — Define the product contract before coding
@@ -125,14 +168,14 @@ Initial data requirements:
 │ Orion            Planned      Alex        Yesterday      →      │
 │ ...                                                             │
 │                                                                 │
-│ 24 projects                         [ Previous ] [ 1 ] [ Next ]│
+│ 24 projects                              [ Previous ] [ Next ]│
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 Required URL parameters:
 
 ```text
-/projects?q=apollo&status=ACTIVE&sort=updatedAt&direction=desc&page=1
+/projects?q=apollo&status=ACTIVE&sort=updatedAt&direction=desc&after=opaqueCursor
 ```
 
 Rules:
@@ -141,9 +184,11 @@ Rules:
 - `status`: `ALL`, `PLANNED`, `ACTIVE`, or `PAUSED`;
 - `sort`: `name` or `updatedAt`;
 - `direction`: `asc` or `desc`;
-- `page`: positive integer; default `1`;
-- `pageSize`: not exposed initially; fixed to `20` on the server;
+- `after`: optional opaque cursor returned by the API; clients must never decode or construct it;
+- `first`: not exposed initially; fixed to `20` by the shell and capped by the API;
 - invalid values fall back to defaults rather than crashing.
+
+Use cursor pagination from the first API contract. It avoids much of the duplicate/skip drift caused by numbered offsets when records are inserted. The first UI only needs Previous/Next: Next places `endCursor` in the URL and browser history provides the previous location. Add bidirectional `before`/`last` navigation only when the product needs direct backward cursor queries. A mutable sort field such as `updatedAt` can still move records between windows; after a status mutation, refetch from the first window and deduplicate by ID. If the product later requires a perfectly consistent multi-page snapshot, add a backend snapshot/version token rather than pretending cursors alone guarantee it.
 
 Required states:
 
@@ -151,9 +196,9 @@ Required states:
 | --- | --- | --- |
 | Loading | Route is pending | Stable table-shaped skeleton; no layout jump |
 | Success | Normal fixture/API response | Table, count, pagination |
-| No projects exist | Empty repository | “No projects yet” and no active filter clear button |
+| No projects exist | Empty data source | “No projects yet” and no active filter clear button |
 | No matching projects | A filter/search finds zero results | “No projects match these filters” and a clear-filters action |
-| Error | Repository/API throws | Clear message and retry action |
+| Error | Data source/API throws | Clear message and retry action |
 
 ### `/projects/[id]` — Project detail
 
@@ -220,6 +265,7 @@ export type Project = {
   status: ProjectStatus;
   owner: User;
   updatedAt: string;
+  version: number;
 };
 
 export type ActivityType =
@@ -237,7 +283,12 @@ export type Activity = {
 };
 ```
 
-Boundary rule: timestamps are ISO-8601 UTC strings, for example `2026-08-28T10:15:00.000Z`. Format them only in the UI.
+Boundary rules:
+
+- timestamps are ISO-8601 UTC strings, for example `2026-08-28T10:15:00.000Z`; format them only in the UI;
+- `version` is an opaque concurrency number used when updating the project; clients send the last version they read;
+- domain code may use `Date`, but transport and persistence adapters own conversion to and from the wire format;
+- IDs are stable identifiers, never array indexes or display names.
 
 ---
 
@@ -258,6 +309,15 @@ pnpm build
 ```
 
 Turbo runs a task only in workspaces that implement that script.
+
+Keep `turbo.json` as the task graph, not a second package manager:
+
+- `build` depends on upstream workspace builds and declares only real outputs (`.next/**` excluding its cache, and `dist/**`);
+- `dev` is persistent and not cached;
+- lint/typecheck/test dependencies reflect actual package imports rather than forcing every task to run sequentially;
+- add `codegen`/`codegen:check` tasks when schema generation exists and make consuming builds depend on the generated contract;
+- declare build-affecting environment variables in Turbo task configuration so a changed value invalidates the cache;
+- never cache or upload artifacts that can contain secrets, user data, nondeterministic external responses, or local `.env` files.
 
 ## 3.2 Complete workspace scripts
 
@@ -327,12 +387,14 @@ Remove the placeholder test script when starting this guide’s Stage 1 or repla
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "codegen": "graphql-codegen --config codegen.ts",
-    "codegen:check": "pnpm codegen && git diff --exit-code -- src/generated"
+    "codegen:check": "pnpm codegen && git diff --exit-code -- src/generated schema.graphql"
   }
 }
 ```
 
 ## 3.3 Install and use a reproducible dependency graph
+
+Pin both runtimes used by developers and CI. Keep the existing `packageManager` field for pnpm and add one repository-owned Node.js version declaration (`engines.node` plus the team's chosen version-manager file). Use an actively supported Node.js LTS release, test upgrades in a pull request, and make CI read the same declared version instead of maintaining an unrelated number in the workflow.
 
 After a dependency change:
 
@@ -357,7 +419,7 @@ Create examples before adding real secrets.
 
 ```dotenv
 API_PORT=4000
-CORS_ORIGIN=http://localhost:3000
+CORS_ALLOWED_ORIGINS=http://localhost:3000
 AI_PROVIDER=
 AI_API_KEY=
 LIVEKIT_URL=
@@ -368,6 +430,7 @@ LIVEKIT_API_SECRET=
 `apps/shell/.env.example`:
 
 ```dotenv
+GRAPHQL_API_URL=http://localhost:4000/graphql
 NEXT_PUBLIC_GRAPHQL_API_URL=http://localhost:4000/graphql
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
@@ -377,7 +440,8 @@ Implementation rules:
 - Put actual values in `.env.local`/deployment secrets, never Git.
 - Read `AI_API_KEY`, LiveKit secrets, and backend credentials only in `apps/api`.
 - Browser values must use `NEXT_PUBLIC_` and must be safe for every visitor to see.
-- Validate required variables at server startup; do not wait for the first user request.
+- Server Components use `GRAPHQL_API_URL`; browser Apollo code uses `NEXT_PUBLIC_GRAPHQL_API_URL`. Deployment may route these to internal and public endpoints respectively.
+- Parse configuration once in a typed server-only module (for example with Zod), normalize the allowed-origin list, and validate required variables at startup; do not wait for the first user request.
 
 ## 3.5 Stage 1 verification
 
@@ -419,11 +483,11 @@ apps/shell/
 │   │   ├── components/
 │   │   ├── data/
 │   │   ├── model.ts
-│   │   ├── project-repository.ts
+│   │   ├── project-data-source.ts
 │   │   └── projects.test.ts
 │   └── activity/
 │       ├── components/
-│       └── activity-repository.ts
+│       └── activity-data-source.ts
 └── lib/
     └── formatters/
 ```
@@ -457,6 +521,7 @@ export const projects: Project[] = [
     status: "ACTIVE",
     owner: users[0],
     updatedAt: "2026-08-28T10:15:00.000Z",
+    version: 3,
   },
   {
     id: "orion",
@@ -464,6 +529,7 @@ export const projects: Project[] = [
     status: "PLANNED",
     owner: users[1],
     updatedAt: "2026-08-27T09:00:00.000Z",
+    version: 1,
   },
   {
     id: "nova",
@@ -471,6 +537,7 @@ export const projects: Project[] = [
     status: "PAUSED",
     owner: users[0],
     updatedAt: "2026-08-20T08:00:00.000Z",
+    version: 2,
   },
 ];
 
@@ -494,22 +561,23 @@ export const activities: Activity[] = [
 
 Fixture scenarios to create deliberately:
 
-| Scenario | Fixture/repository behavior | Used by |
+| Scenario | Fixture/data-source behavior | Used by |
 | --- | --- | --- |
 | Normal list | 3+ projects across statuses | `/projects` success state |
-| Empty repository | `[]` before filtering | “No projects yet” state |
+| Empty data source | `[]` before filtering | “No projects yet” state |
 | No filter match | Normal list plus `q=does-not-exist` | “No matches” state |
 | Project with no activity | Project exists, activity list is `[]` | Detail empty activity state |
 | Not found | `getProject("unknown")` returns `null` | Route `not-found` state |
-| Service error | Method throws `ProjectRepositoryError` | Route error state |
+| Service error | Method throws `ProjectDataSourceError` | Route error state |
 | Mutation failure | `updateStatus` rejects | Rollback/error UI |
+| Stale update | `expectedVersion` is behind the stored version | Conflict message and authoritative-data refresh |
 
 ## 4.3 Create a feature data interface
 
 Do not import the arrays directly into React components. Create:
 
 ```text
-apps/shell/features/projects/project-repository.ts
+apps/shell/features/projects/project-data-source.ts
 ```
 
 ```ts
@@ -520,34 +588,40 @@ export type ProjectListInput = {
   status?: ProjectStatus;
   sort: "name" | "updatedAt";
   direction: "asc" | "desc";
-  page: number;
-  pageSize: number;
+  first: number;
+  after?: string;
 };
 
 export type ProjectListResult = {
   items: Project[];
   totalCount: number;
-  page: number;
-  pageSize: number;
+  pageInfo: {
+    endCursor: string | null;
+    hasNextPage: boolean;
+  };
 };
 
-export interface ProjectRepository {
+export interface ProjectDataSource {
   list(input: ProjectListInput): Promise<ProjectListResult>;
   getById(id: string): Promise<Project | null>;
-  updateStatus(id: string, status: ProjectStatus): Promise<Project>;
+  updateStatus(
+    id: string,
+    status: ProjectStatus,
+    expectedVersion: number,
+  ): Promise<Project>;
 }
 ```
 
-Then implement `fixture-project-repository.ts`. It should:
+Then implement `fixture-project-data-source.ts`. This is a temporary UI seam, not a second domain/repository layer. It should:
 
 1. clone fixture data rather than mutate exported arrays;
 2. filter by status/search;
-3. sort deterministically;
-4. slice the requested page;
+3. sort by the selected field plus `id` as a stable tie-breaker;
+4. create opaque fixture cursors and return the requested window;
 5. throw predictable errors only in an explicit error fixture;
 6. append a status-change activity when a status changes.
 
-Later, the GraphQL client replaces this implementation. The UI component contract remains the same until the migration is complete.
+Later, generated GraphQL operations replace this implementation. Keep fixtures behind MSW GraphQL handlers after that migration so tests exercise the same network contract as production. Do not maintain parallel handwritten API response types once client code generation exists.
 
 ## 4.4 Implement URL parsing once
 
@@ -565,13 +639,13 @@ export type ProjectSearchParams = {
   status: "ALL" | "PLANNED" | "ACTIVE" | "PAUSED";
   sort: "name" | "updatedAt";
   direction: "asc" | "desc";
-  page: number;
+  after?: string;
 };
 
 export function parseProjectSearchParams(
   params: Record<string, string | string[] | undefined>,
 ): ProjectSearchParams {
-  // Trim q, validate every enum, parse page, and return defaults for invalid input.
+  // Trim q, validate every enum, bound cursor length/control characters, and return defaults.
 }
 ```
 
@@ -579,9 +653,8 @@ Test this function before building controls. Test:
 
 ```text
 empty params → defaults
-page=2 → page 2
-page=0 → page 1
-page=not-a-number → page 1
+after=<fixture/API cursor> → opaque value preserved
+after=<overlong or control-character value> → omitted
 status=ACTIVE → ACTIVE
 status=UNKNOWN → ALL
 q=%20apollo%20 → apollo
@@ -591,7 +664,7 @@ q=%20apollo%20 → apollo
 
 ### Root dashboard
 
-Create `apps/shell/app/page.tsx` as a Server Component. It should fetch dashboard data from the fixture repository in Stage 2 and render:
+Create `apps/shell/app/page.tsx` as a Server Component. It should fetch dashboard data from the fixture data source in Stage 2 and render:
 
 - page heading;
 - four status/count cards;
@@ -605,7 +678,7 @@ Do not make the entire page a Client Component. Add client components only when 
 Create `apps/shell/app/projects/page.tsx`:
 
 1. await/parse `searchParams`;
-2. call the repository with parsed input;
+2. call the data source with parsed input;
 3. render `ProjectListPage` from the projects feature;
 4. pass plain data and current filter values to client controls.
 
@@ -649,11 +722,11 @@ Recommended control behavior:
 
 | Control | Behavior |
 | --- | --- |
-| Search | Debounce the URL replacement by 250–300ms; reset page to `1` |
-| Status filter | Update URL immediately; reset page to `1` |
-| Sort | Update sort/direction; reset page to `1` |
-| Pagination | Use links/buttons with clear accessible labels; preserve other query parameters |
-| Clear filters | Remove `q` and `status`; reset page to `1` |
+| Search | Debounce the URL replacement by 250–300ms; remove `after` |
+| Status filter | Update URL immediately; remove `after` |
+| Sort | Update sort/direction; remove `after` |
+| Pagination | Put the server-provided cursor in the URL; preserve filters; use browser history for Previous initially |
+| Clear filters | Remove `q`, `status`, and `after` |
 | Status editor | Disable while pending; show success/error status; do not double-submit |
 
 ## 4.7 Stage 2 tests
@@ -698,14 +771,14 @@ Stage 2 is complete only when every required screen state can be shown without e
 From the root, add the runtime packages needed by the API:
 
 ```bash
-pnpm --filter api add graphql graphql-yoga zod
+pnpm --filter api add graphql graphql-yoga graphql-scalars zod
 ```
 
 Add development tooling:
 
 ```bash
 pnpm --filter api add -D typescript tsx vitest @types/node eslint @eslint/js typescript-eslint
-pnpm --filter api add -D @graphql-codegen/typescript @graphql-codegen/typescript-resolvers
+pnpm --filter api add -D @graphql-codegen/typescript @graphql-codegen/typescript-resolvers @graphql-codegen/schema-ast
 ```
 
 Do not add a database package yet. The first API uses the same in-memory seed data pattern through a server-side repository.
@@ -728,31 +801,42 @@ Requirements:
 ```text
 apps/api/
 ├── src/
-│   ├── server.ts
-│   ├── context.ts
-│   ├── schema/
-│   │   ├── project.graphql
-│   │   ├── activity.graphql
-│   │   ├── schema.ts
-│   │   └── resolvers.ts
+│   ├── server.ts                # process lifecycle only
+│   ├── bootstrap.ts             # composition root
+│   ├── context.ts               # actor/loaders/trace metadata
+│   ├── transport/
+│   │   ├── graphql/
+│   │   │   ├── schema/
+│   │   │   ├── resolvers/
+│   │   │   └── yoga.ts
+│   │   └── health.ts
 │   ├── modules/
 │   │   ├── projects/
-│   │   │   ├── project-service.ts
-│   │   │   ├── project-repository.ts
-│   │   │   └── in-memory-project-repository.ts
+│   │   │   ├── domain/
+│   │   │   ├── application/
+│   │   │   ├── ports/
+│   │   │   │   └── project-repository.ts
+│   │   │   └── infrastructure/
+│   │   │       ├── in-memory-project-repository.ts
+│   │   │       └── backend-project-repository.ts
 │   │   └── activity/
-│   │       ├── activity-service.ts
-│   │       └── in-memory-activity-repository.ts
+│   │       ├── domain/
+│   │       ├── application/
+│   │       ├── ports/
+│   │       └── infrastructure/
 │   ├── generated/             # code generation output; never edit manually
 │   └── test/
+├── schema.graphql             # generated canonical contract artifact
 ├── codegen.ts
 ├── tsconfig.json
 └── tsconfig.build.json
 ```
 
+Do not add every folder pre-emptively. Create a layer when it contains real behavior. The important rule is dependency direction: transport and infrastructure depend on application/domain contracts, never the reverse. `bootstrap.ts` constructs adapters and injects them into use cases.
+
 ## 5.4 Write the first schema
 
-Create `apps/api/src/schema/project.graphql`:
+Create `apps/api/src/transport/graphql/schema/project.graphql`:
 
 ```graphql
 enum ProjectStatus {
@@ -771,6 +855,8 @@ enum SortDirection {
   DESC
 }
 
+scalar DateTime
+
 type User {
   id: ID!
   name: String!
@@ -781,14 +867,27 @@ type Project {
   name: String!
   status: ProjectStatus!
   owner: User!
-  updatedAt: String!
+  updatedAt: DateTime!
+  version: Int!
 }
 
-type ProjectPage {
-  items: [Project!]!
+type ProjectEdge {
+  cursor: String!
+  node: Project!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+type ProjectConnection {
+  edges: [ProjectEdge!]!
+  nodes: [Project!]!
   totalCount: Int!
-  page: Int!
-  pageSize: Int!
+  pageInfo: PageInfo!
 }
 
 input ProjectFilterInput {
@@ -804,20 +903,32 @@ input ProjectSortInput {
 input UpdateProjectStatusInput {
   projectId: ID!
   status: ProjectStatus!
+  expectedVersion: Int!
+  clientMutationId: ID!
+}
+
+type UserError {
+  code: String!
+  message: String!
+  field: [String!]
 }
 
 type UpdateProjectStatusPayload {
-  project: Project!
-  activity: Activity!
+  project: Project
+  activity: Activity
+  userErrors: [UserError!]!
+  clientMutationId: ID!
 }
 
 type Query {
   projects(
     filter: ProjectFilterInput
     sort: ProjectSortInput
-    page: Int! = 1
-    pageSize: Int! = 20
-  ): ProjectPage!
+    first: Int = 20
+    after: String
+    last: Int
+    before: String
+  ): ProjectConnection!
   project(id: ID!): Project
 }
 
@@ -826,7 +937,7 @@ type Mutation {
 }
 ```
 
-Create `apps/api/src/schema/activity.graphql`:
+Create `apps/api/src/transport/graphql/schema/activity.graphql`:
 
 ```graphql
 enum ActivityType {
@@ -841,7 +952,7 @@ type Activity {
   projectId: ID!
   type: ActivityType!
   message: String!
-  createdAt: String!
+  createdAt: DateTime!
 }
 
 extend type Query {
@@ -849,14 +960,17 @@ extend type Query {
 }
 ```
 
-Why offset/page pagination first:
+Cursor rules:
 
-- the screen has explicit page controls;
-- the seeded dataset is small;
-- it makes the UI simple to build;
-- the service must enforce page-size limits and a stable secondary sort.
+- order by the requested field and then `id` as a unique, stable tie-breaker;
+- encode the sort values and `id` in a versioned opaque cursor; clients only store and return it;
+- validate cursor version, shape, and maximum length at the transport boundary;
+- allow exactly one direction (`first`/`after` or `last`/`before`) and cap the window, for example at `100`;
+- document whether `totalCount` is exact, cached, or eventually consistent when a real data source arrives.
 
-Revisit cursor pagination when data volume/realtime churn makes numbered pages unreliable.
+Use a real `DateTime` scalar rather than an ambiguous `String`. Configure code generation to map it explicitly to the application's ISO timestamp type. Treat schema nullability as a compatibility promise: use non-null only when the service can guarantee the value without making a parent object disappear during a partial failure.
+
+Register a validated `DateTime` scalar implementation (for example from `graphql-scalars`) in the executable schema. An SDL declaration alone does not validate or serialize dates.
 
 ## 5.5 Implement service boundaries
 
@@ -864,19 +978,20 @@ Resolvers must be thin. They translate GraphQL arguments into service calls.
 
 ```text
 GraphQL resolver
-  → ProjectService
-    → ProjectRepository interface
-      → InMemoryProjectRepository now
-      → BackendServiceProjectRepository later
+  → application use case
+    → domain policy + port interfaces
+      ← InMemoryProjectRepository now
+      ← BackendProjectRepository later
 ```
 
-`ProjectService` responsibilities:
+Application use-case responsibilities:
 
 - validate/normalize list parameters;
-- cap `pageSize` (for example, `1..100`);
-- enforce authorization when authentication is introduced;
+- cap connection windows (for example, `1..100`);
+- call an authorization policy using the hydrated actor, tenant, resource, and action;
 - coordinate status update and activity creation;
-- expose domain errors such as not found or validation failure.
+- expose typed domain outcomes such as not found, validation failure, forbidden, and version conflict;
+- remain independent of GraphQL and HTTP types.
 
 `ProjectRepository` responsibilities:
 
@@ -888,15 +1003,44 @@ GraphQL resolver
 Important mutation sequence:
 
 ```text
-validate input
+authenticate request and build ActorContext
+→ validate input and authorize action
 → load project
 → reject nonexistent project
-→ update status
-→ create STATUS_CHANGED activity
+→ compare expectedVersion with stored version
+→ update status and increment version
+→ create STATUS_CHANGED audit activity in the same transaction
+→ store/recognize clientMutationId where a transport or downstream retry can duplicate the command
 → return updated project + activity
 ```
 
-When a database replaces the in-memory store, status update and activity creation must become one transaction.
+If `apps/api` becomes the deliberate Project system of record, status update and activity creation must be one database transaction. If an event is published after commit, use an outbox so a successful database commit cannot lose its event. If a downstream Project service is the system of record, that service must enforce the version/idempotency/atomic-audit guarantees; the BFF passes the actor and command metadata and maps the result. Do not simulate a distributed transaction across backend calls in the BFF. Use an explicit workflow/saga only when a real multi-service business process requires compensation. Do not retry mutations automatically unless the command has an idempotency strategy.
+
+Scope an idempotency record by tenant/actor, operation, and `clientMutationId`; store the request fingerprint and completed outcome for a bounded retention period. A repeated key with the same input returns the original outcome. The same key with different input is rejected. A client-generated ID alone does not provide idempotency unless the server enforces these rules.
+
+GraphQL error rules:
+
+- expected business outcomes belong in `userErrors` with stable, documented codes such as `PROJECT_NOT_FOUND`, `FORBIDDEN`, `VALIDATION_FAILED`, and `VERSION_CONFLICT`;
+- where revealing resource existence would be sensitive, authorization policy returns the same public outcome for forbidden and missing resources;
+- unexpected faults use GraphQL errors with a stable `extensions.code` and `requestId`, while internal messages and stacks remain server-side;
+- log each unexpected fault once at the boundary with correlation context; do not log the same exception in every layer;
+- authorization belongs in application/domain policy so every transport—GraphQL, MCP, assistant, or future jobs—uses the same rule. Resolvers only obtain the actor and call the use case.
+
+Create request-scoped loaders for nested fields such as `Project.owner`. Batch and cache only within one request to prevent N+1 calls without leaking one user's data into another request.
+
+Add `dataloader` to `apps/api` only when the first batched field is implemented:
+
+```bash
+pnpm --filter api add dataloader
+```
+
+For backend-service adapters:
+
+- set an explicit connect/response deadline with `AbortSignal` and propagate cancellation;
+- retry only transient failures on idempotent reads, with a small bounded attempt count and jitter;
+- pass correlation and trace headers, but never blindly forward browser credentials;
+- map downstream payloads and errors at the adapter boundary; never leak backend DTOs into the domain;
+- add circuit breakers or bulkheads only after telemetry shows a cascading-failure risk and document their fallback behavior.
 
 ## 5.6 Create GraphQL Yoga server
 
@@ -906,13 +1050,14 @@ When a database replaces the in-memory store, status update and activity creatio
 2. create Yoga with a request context;
 3. create a Node HTTP server;
 4. listen on `API_PORT` (default `4000`);
-5. provide a health/readiness endpoint;
+5. provide separate liveness and readiness endpoints;
 6. close cleanly for `SIGINT` and `SIGTERM`.
 
 Expected local endpoints:
 
 ```text
-http://localhost:4000/health
+http://localhost:4000/health/live
+http://localhost:4000/health/ready
 http://localhost:4000/graphql
 ```
 
@@ -925,14 +1070,17 @@ pnpm --filter api dev
 Test it manually after implementation:
 
 ```bash
-curl http://localhost:4000/health
+curl http://localhost:4000/health/live
+curl http://localhost:4000/health/ready
 ```
 
 ```bash
 curl http://localhost:4000/graphql \
   -H 'content-type: application/json' \
-  --data '{"query":"query { projects { totalCount items { id name status } } }"}'
+  --data '{"query":"query { projects(first: 20) { totalCount nodes { id name status version } pageInfo { endCursor hasNextPage } } }"}'
 ```
+
+Liveness only answers whether the process/event loop is alive. Readiness answers whether this instance can serve traffic and may check required downstream dependencies with short timeouts. Return `503` when unready, but do not expose dependency hostnames, credentials, or raw error messages. Remove readiness before shutdown, stop accepting new work, drain in-flight requests, and then close resources within the platform grace period.
 
 ## 5.7 Configure server code generation
 
@@ -944,12 +1092,17 @@ Conceptual configuration:
 import type { CodegenConfig } from "@graphql-codegen/cli";
 
 const config: CodegenConfig = {
-  schema: "src/schema/**/*.graphql",
+  schema: "src/transport/graphql/schema/**/*.graphql",
   generates: {
+    "schema.graphql": {
+      plugins: ["schema-ast"],
+      config: { includeDirectives: true },
+    },
     "src/generated/resolvers-types.ts": {
       plugins: ["typescript", "typescript-resolvers"],
       config: {
         contextType: "../context#GraphQLContext",
+        scalars: { DateTime: { input: "string", output: "string" } },
         useTypeImports: true,
       },
     },
@@ -966,6 +1119,8 @@ pnpm --filter api codegen
 pnpm --filter api typecheck
 ```
 
+`apps/api/schema.graphql` is the canonical, generated contract artifact. Commit it so CI and clients can compare the proposed contract with the base branch. Never edit it manually. If the API and clients later move to separate repositories or release cadences, publish this artifact to a schema registry instead of copying SDL between repositories.
+
 ## 5.8 Add API tests
 
 Test at two levels.
@@ -975,21 +1130,25 @@ Test at two levels.
 Use Vitest to test:
 
 - filter and sort behavior;
-- page-size limits;
+- cursor/window validation and limits;
 - empty results;
 - project not found;
 - status update creates one activity;
 - rejected update does not create activity.
+- stale `expectedVersion` returns a conflict and changes nothing;
+- repeated `clientMutationId` does not duplicate a successful command when idempotency is enabled.
 
 ### GraphQL integration tests
 
 Call the Yoga fetch handler with GraphQL-over-HTTP requests. Test:
 
 - successful `projects` query;
-- invalid page/page size;
+- invalid cursor/window combinations;
 - unknown project;
-- update mutation;
+- successful, forbidden, and version-conflict mutations;
 - error shape does not leak internal stack traces.
+
+Run integration tests against the built executable schema and real context construction—not resolver functions in isolation. When a real database or broker is introduced, add adapter integration tests against an ephemeral real dependency (for example, a disposable container) rather than mocking the driver's behavior.
 
 Run:
 
@@ -1025,9 +1184,10 @@ apps/shell/
 
 The shell Codegen configuration should:
 
-- read schema SDL from `../../apps/api/src/schema/**/*.graphql` while working locally;
+- read the canonical generated contract from `../api/schema.graphql` (relative to `apps/shell`), never API implementation globs;
 - scan shell GraphQL documents;
 - emit client preset output to `lib/graphql/generated`;
+- map `DateTime` explicitly to the ISO timestamp string type;
 - use type-only imports;
 - fail CI when generated output is stale.
 
@@ -1037,16 +1197,24 @@ Example operation co-located with the feature:
 import { graphql } from "@/lib/graphql/generated";
 
 export const ProjectListQuery = graphql(/* GraphQL */ `
-  query ProjectList($filter: ProjectFilterInput, $sort: ProjectSortInput, $page: Int!) {
-    projects(filter: $filter, sort: $sort, page: $page) {
+  query ProjectList(
+    $filter: ProjectFilterInput
+    $sort: ProjectSortInput
+    $first: Int!
+    $after: String
+  ) {
+    projects(filter: $filter, sort: $sort, first: $first, after: $after) {
       totalCount
-      page
-      pageSize
-      items {
+      pageInfo {
+        endCursor
+        hasNextPage
+      }
+      nodes {
         id
         name
         status
         updatedAt
+        version
         owner {
           id
           name
@@ -1071,9 +1239,14 @@ Create an `ApolloWrapper` Client Component using the official Next.js integratio
 Rules:
 
 - use absolute API URLs when code runs server-side;
-- choose whether a query is RSC-owned or Apollo-client-owned;
+- assign one owner to each query: RSC/Next server fetch or Apollo client cache;
 - do not fetch the same entity independently in both places without intentionally preloading/hydrating it;
-- use Client Components for filters, optimistic mutation UI, and subscription-driven updates;
+- use the official Apollo Next.js integration to preload an Apollo-owned query in an RSC and consume it with `useReadQuery`/`useSuspenseQuery` in a Client Component;
+- do not read Apollo-client-owned preloaded results as RSC data; use Client Components for optimistic mutation UI and subscription-driven updates;
+- use `Project.id` as the normalized cache identity and define explicit connection merge policies keyed by filter/sort arguments;
+- keep server/user-specific GraphQL responses `no-store` unless a deliberate authorization-safe cache and invalidation policy exists;
+- do not duplicate remote GraphQL entities in Zustand, React context, or component state;
+- mark server-only GraphQL/configuration modules with `server-only`, and pass minimum view models—not raw backend/context objects—from Server Components to Client Components;
 - keep API URL configuration in environment variables.
 
 ### Migration order
@@ -1086,7 +1259,7 @@ Replace fixture data in this order:
 4. status mutation with optimistic UI;
 5. dashboard summary query.
 
-Keep fixture repositories only for component/unit tests and explicit offline/error scenarios after each production path is migrated.
+Move fixtures behind MSW GraphQL handlers for component/integration tests and explicit failure scenarios after each production path is migrated.
 
 ## 5.11 Optimistic status mutation
 
@@ -1097,16 +1270,19 @@ User chooses a new status
 → validate that it differs from current status
 → update Apollo cache optimistically
 → disable duplicate submission
-→ send updateProjectStatus mutation
+→ send updateProjectStatus with expectedVersion and a new clientMutationId
 → replace optimistic entity with server response
 → append returned activity if not already present
-→ on error: rollback/refetch and show error
+→ on VERSION_CONFLICT: rollback, refetch, and explain that the project changed elsewhere
+→ on transport/unexpected error: rollback/refetch and show a retryable error
 ```
 
 Tests must prove:
 
 - status changes immediately under simulated latency;
 - duplicate submit cannot occur;
+- the optimistic result increments `version` consistently;
+- a version conflict never overwrites a newer server value;
 - failed mutation restores/refetches authoritative state;
 - failure message is visible to screen readers.
 
@@ -1209,7 +1385,7 @@ type Activity = {
 Client merge rules:
 
 1. If an event ID already exists, ignore it.
-2. Otherwise insert it in descending `createdAt` order.
+2. Otherwise insert it by the documented stable order `(createdAt, id)` descending.
 3. On reconnect, refetch the activity query before trusting new events.
 4. When a user changes projects, unsubscribe from the old project before subscribing to the new one.
 
@@ -1236,6 +1412,8 @@ type Subscription {
   activityAdded(projectId: ID!): Activity!
 }
 ```
+
+Authenticate the connection and authorize the project when subscribing. Re-check authorization when the event infrastructure or token lifetime requires it. Subscriptions are notifications, not the source of truth: after a disconnect, refetch the authoritative query before applying new events.
 
 Add required client support:
 
@@ -1265,7 +1443,7 @@ navigate Apollo → Orion → Apollo subscription does not leak across projects
 component unmount → no active listener remains
 ```
 
-Do not add Redis/Kafka until deploying more than one API process. At that point, replace in-memory pub/sub behind an `ActivityEventBus` interface.
+Define an `ActivityEventBus` port with an in-memory adapter from the start, but do not add Redis/Kafka yet. Before running more than one API replica, replace the adapter with shared infrastructure or use a managed event gateway; otherwise subscribers connected to another replica will miss events. Assume at-least-once delivery and keep client/server deduplication by event ID.
 
 ---
 
@@ -1288,12 +1466,18 @@ Do not put the provider key into `NEXT_PUBLIC_*` variables or browser code.
 
 ```text
 apps/api/src/modules/assistant/
-├── assistant-service.ts
-├── ai-provider.ts              # interface owned by this project
-├── provider-<chosen-name>.ts   # one concrete provider implementation
-├── assistant-policy.ts
-├── assistant-stream-route.ts
-└── assistant-service.test.ts
+├── domain/
+│   └── assistant-policy.ts
+├── application/
+│   ├── stream-assistant-response.ts
+│   └── stream-assistant-response.test.ts
+├── ports/
+│   └── ai-provider.ts          # interface owned by this project
+└── infrastructure/
+    └── provider-<chosen-name>.ts
+
+apps/api/src/transport/http/
+└── assistant-stream-route.ts
 ```
 
 Use a small provider interface:
@@ -1319,6 +1503,8 @@ The assistant service owns:
 - abort propagation;
 - log-safe request metadata;
 - later tool-calling loop.
+
+The HTTP route authenticates the actor, validates the request, passes an abort signal and actor context to the application use case, and translates typed outcomes to the streaming protocol. It must not contain prompting, authorization, provider selection, or project lookup rules.
 
 ## 8.3 Streaming endpoint
 
@@ -1461,13 +1647,13 @@ Every tool:
 
 1. has an explicit Zod/JSON Schema input schema;
 2. validates IDs and limits;
-3. calls the same Project/Activity service used by GraphQL resolvers;
+3. calls the same Project/Activity application use cases used by GraphQL resolvers;
 4. enforces the same authorization rules;
 5. returns structured, bounded output;
 6. emits a safe error result when downstream data is unavailable;
 7. logs tool name, request ID, duration, outcome—not secrets/full sensitive data.
 
-Never make the API call its own `/graphql` endpoint over HTTP merely to implement a tool. Call the service layer directly.
+Never make the API call its own `/graphql` endpoint over HTTP merely to implement a tool. Call the application use case directly.
 
 ## 9.4 Assistant integration
 
@@ -1594,7 +1780,7 @@ Final assistant response → transcript is visible and retained
 
 ## 11.1 CI gates
 
-The CI workflow should run from a clean Linux runner:
+The CI workflow should run from a clean Linux runner using the repository-pinned Node.js active LTS and pnpm versions:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -1604,16 +1790,56 @@ pnpm test
 pnpm build
 ```
 
-Add later, after basic CI is stable:
+Once GraphQL code generation exists, make generated-output and contract checks required—not optional “later” checks:
 
 ```bash
 pnpm --filter @repo/ui build-storybook
 pnpm --filter shell codegen:check
 pnpm --filter api codegen:check
+pnpm graphql:schema:diff
+pnpm graphql:documents:validate
 pnpm test:e2e
 ```
 
+Implement `codegen:check` by generating into a clean working tree and failing when `git diff --exit-code` detects stale output. Implement `graphql:schema:diff` with GraphQL Inspector (or the chosen schema registry) against the base branch's `apps/api/schema.graphql`. Block breaking changes; review dangerous changes; allow additive changes. Validate every committed client operation against the proposed schema.
+
+If using GraphQL Inspector locally, install it as a root development tool when this gate is implemented:
+
+```bash
+pnpm add -Dw @graphql-inspector/cli
+```
+
+Recommended required pipeline order:
+
+```text
+install once with frozen lockfile
+  ├─ lint + architecture boundary rules
+  ├─ typecheck + generated-output checks
+  ├─ unit/component tests
+  ├─ schema diff + document validation
+  └─ dependency/secret review
+          ↓
+       build immutable artifacts
+          ↓
+ integration/E2E/security smoke tests
+```
+
+Pin third-party CI actions to reviewed immutable commit SHAs, minimize workflow permissions, protect deployment environments, and never expose production secrets to untrusted pull-request jobs. Add dependency review and secret scanning. Generate an SBOM and artifact provenance/attestation when deployment artifacts are introduced; treat these as release evidence, not files developers edit.
+
 ## 11.2 End-to-end test scope
+
+Use the smallest test boundary that proves the behavior:
+
+| Test layer | What it proves | Preferred dependencies |
+| --- | --- | --- |
+| Domain/application unit | rules, authorization decisions, cursor/concurrency/idempotency behavior | pure fakes for owned ports |
+| API integration | executable schema, context, adapters, error/transaction behavior | in-process Yoga; real ephemeral DB/broker when introduced |
+| Shell component | accessible interaction and states | MSW GraphQL handlers generated/aligned with operations |
+| Contract | schema compatibility and operation validity | canonical schema artifact plus committed documents |
+| End-to-end | a few critical user journeys across built services | production-like shell/API, deterministic seeded environment |
+| Load/resilience | capacity, timeout, reconnect, and dependency-failure assumptions | isolated non-production environment |
+
+Do not chase a coverage percentage by testing framework internals. Require coverage of security and business invariants, and use mutation/branch coverage selectively for high-risk domain modules.
 
 Add Playwright only when these flows exist:
 
@@ -1637,7 +1863,9 @@ Avoid CSS selectors tied to styling implementation.
 
 ## 11.3 Observability fields
 
-Introduce a request/correlation ID at the API boundary. Include it in structured logs for:
+Initialize the OpenTelemetry SDK before importing application modules. Use automatic HTTP/runtime instrumentation plus manual spans around meaningful application operations. Set `service.name`, `service.version`, and deployment environment on every signal, propagate W3C trace context across shell/API/backend calls, and use low-cardinality attributes.
+
+Introduce or accept a validated request/correlation ID at the API boundary. Return it to the caller and include it in structured logs for:
 
 ```text
 HTTP request
@@ -1659,17 +1887,46 @@ full browser tokens
 unredacted sensitive prompts/tool results
 ```
 
+Do not put project IDs, user IDs, query text, prompts, or error messages in metric labels. They create unbounded cardinality or leak data. Put identifiers in access-controlled logs/traces only when policy permits, preferably hashed or redacted.
+
+Define service-level objectives before alerting. A practical first set is:
+
+- GraphQL availability and p95 latency for named operations;
+- downstream dependency error/timeout rate;
+- mutation conflict and failure rate;
+- assistant time-to-first-token, completion/error rate, and cost/usage;
+- subscription connection/reconnect count.
+
+Alerts should correspond to user-visible SLO burn or an actionable dependency failure. Dashboards alone are not an incident response plan: document ownership, escalation, rollback, and a short runbook for each production alert.
+
 ## 11.4 GraphQL hardening before exposure
 
-- enforce maximum page size;
-- validate every input;
-- add request/body/time limits;
-- restrict CORS to known shell origins;
+- terminate TLS and apply secure headers in the shell/API edge;
+- authenticate before GraphQL execution and pass a hydrated actor to the context; authorize inside application/domain policy;
+- enforce maximum connection windows and validate every scalar/input, including cursor length;
+- add request-body, execution-time, alias, batch, depth, breadth, and measured query-cost limits;
+- restrict CORS to known shell origins, while recognizing that CORS is not authorization;
+- if browser authentication uses cookies, use `HttpOnly`, `Secure`, appropriate `SameSite`, origin checks, and CSRF protection for mutations;
 - mask internal errors;
-- add query depth/cost limits;
-- rate-limit by user/IP as appropriate;
+- rate-limit by authenticated subject/tenant and use IP only as an additional signal;
 - authorize both object lookup and collection edges;
-- add persisted operations when the private API is production-facing.
+- use trusted/persisted documents for this first-party shell once operations stabilize; production may reject arbitrary documents;
+- disable or access-control GraphiQL in production and make an explicit introspection policy, but never treat disabled introspection as the primary defense;
+- enforce outbound host allowlists and URL parsing in adapters that accept any user-influenced URL to prevent SSRF;
+- keep secrets in the deployment platform's secret manager, rotate them, and never expose them through `NEXT_PUBLIC_*` variables.
+
+If multitenancy is introduced, make `tenantId` mandatory in actor/application context and every repository query, idempotency key, cache key, event, and audit record. Add cross-tenant negative tests at API and persistence boundaries; UI filtering is never a tenant-isolation control. Use database-level isolation as defense in depth where the selected datastore supports it.
+
+Maintain a short threat model covering assets, actors, trust boundaries, abuse cases, and mitigations. Revisit it when adding authentication, multitenancy, file/URL input, assistant tools, subscriptions, or voice.
+
+For AI and MCP, also require:
+
+- data classification and an explicit list of context allowed to leave the API;
+- prompt-injection threat tests and strict tool allowlists;
+- typed tool inputs, output validation, authorization on every invocation, and output-size limits;
+- human confirmation for destructive/high-impact tools; keep the first release read-only;
+- retention/redaction policy, per-user/tenant quotas, cost limits, and complete audit events;
+- untrusted model output rendered as data, never executed as code, HTML, SQL, shell, or a URL without validation.
 
 ## 11.5 Deployment compatibility rules
 
@@ -1678,9 +1935,34 @@ Because shell and API can deploy separately:
 - add fields before consuming them;
 - deploy API support before shell usage;
 - stop using a field before removing it;
-- do not change a field’s meaning/type in place;
-- health-check both services;
+- deprecate fields with a reason and removal window; use usage data before removal;
+- never change a field's meaning/type in place or reuse an enum value with new semantics;
+- build once and promote the same immutable artifact through environments;
+- run services as non-root with a read-only filesystem where practical, resource requests/limits, and graceful termination;
+- use separate liveness/readiness probes for both services;
+- deploy API support before shell consumers and verify mixed-version compatibility during rolling/blue-green rollout;
+- use expand/migrate/contract database changes so old and new application versions can run together;
+- keep configuration outside the artifact, validate it at startup, and fail fast on missing required values;
 - write a rollback path for each deployment.
+
+The shell and API may scale independently. Keep the API stateless between requests. Store subscriptions, idempotency records, sessions, and assistant conversations in shared infrastructure only when those features require them; do not rely on process memory in a multi-replica deployment.
+
+## 11.6 Production readiness review
+
+Before the first production deployment, assign an owner and evidence link for every row:
+
+| Area | Required evidence |
+| --- | --- |
+| Architecture | current context/container diagrams, ADRs, dependency-boundary test |
+| Contract | generated schema, no breaking diff, client documents validated |
+| Security | threat model, authentication/authorization tests, secret and dependency scan |
+| Reliability | timeout/retry policy, liveness/readiness, graceful-shutdown and rollback test |
+| Data | transaction/idempotency/concurrency tests; backup/restore test when durable storage exists |
+| Performance | representative load test, pagination/query-cost limits, agreed capacity assumptions |
+| Observability | trace across shell → API → backend, SLO dashboard, alert and runbook |
+| Delivery | immutable artifact, provenance/SBOM where required, environment promotion and rollback record |
+
+Do not claim “enterprise ready” because every tool is installed. The review passes only when the team can demonstrate the behavior and operate failure scenarios.
 
 ---
 
@@ -1787,7 +2069,7 @@ Use [BRANCH_AND_PR_WORKFLOW.md](BRANCH_AND_PR_WORKFLOW.md) for branch, PR templa
 
 - [ ] Dashboard, project list, and project detail route exist.
 - [ ] Fixtures show normal, loading, empty, no-match, not-found, and error states.
-- [ ] URL owns project-list filter/sort/page state.
+- [ ] URL owns project-list filter/sort/cursor state.
 - [ ] Status editor has pending/error behavior.
 - [ ] Feature/component tests pass.
 
@@ -1795,10 +2077,12 @@ Use [BRANCH_AND_PR_WORKFLOW.md](BRANCH_AND_PR_WORKFLOW.md) for branch, PR templa
 
 - [ ] `apps/api` runs independently.
 - [ ] GraphQL schema owns project/activity contract.
-- [ ] Resolver/service/repository boundaries are present.
+- [ ] Resolver → application/domain port → infrastructure adapter boundaries are present and enforced.
 - [ ] Shell uses typed GraphQL operations for list/detail/mutation.
 - [ ] API and client codegen checks pass.
+- [ ] Schema diff and client-document validation pass.
 - [ ] Optimistic status mutation rolls back safely.
+- [ ] Version-conflict and idempotency behavior is tested.
 
 ## Stage 4 complete
 
@@ -1824,4 +2108,33 @@ Use [BRANCH_AND_PR_WORKFLOW.md](BRANCH_AND_PR_WORKFLOW.md) for branch, PR templa
 ## Stage 8 complete
 
 - [ ] CI, observability, security limits, and deployment runbook exist.
+- [ ] Production readiness review has an owner and evidence for every area.
 - [ ] Microfrontend decision is evidence-based, not automatic.
+
+---
+
+# 15. Primary architecture references
+
+Use these primary sources when implementing or revisiting the decisions in this guide. Re-check the current version of a technology's documentation at implementation time.
+
+## GraphQL contract and runtime
+
+- [GraphQL pagination](https://graphql.org/learn/pagination/) — opaque cursors, connections, edges, and page information.
+- [GraphQL authorization](https://graphql.org/learn/authorization/) — authenticate before execution and keep authorization in business logic.
+- [GraphQL schema design](https://graphql.org/learn/schema-design/) — nullability and additive, versionless evolution.
+- [GraphQL security](https://graphql.org/learn/security/) — trusted documents, pagination, depth/breadth/batch/cost limits, rate limits, and safe errors.
+- [GraphQL over HTTP](https://graphql.org/learn/serving-over-http/) — endpoint, authentication middleware, request methods, and response status behavior.
+- [GraphQL Yoga production guidance](https://the-guild.dev/graphql/yoga-server/docs/prepare-for-production) and [health checks](https://the-guild.dev/graphql/yoga-server/docs/features/health-check) — persisted operations, request limits, readiness, and safe health output.
+- [GraphQL Inspector schema diff](https://the-guild.dev/graphql/inspector/docs/commands/diff) — classify and block breaking schema changes in CI.
+
+## Next.js and Apollo
+
+- [Next.js App Router data security](https://nextjs.org/docs/app/guides/data-security) — server/client boundaries, minimal data transfer, `server-only`, and mutation authorization.
+- [Next.js production checklist](https://nextjs.org/docs/app/guides/production-checklist), [CSP guide](https://nextjs.org/docs/app/guides/content-security-policy), and [self-hosting guide](https://nextjs.org/docs/app/guides/self-hosting) — caching, security headers, runtime configuration, reverse proxies, and production verification.
+- [Apollo Client Next.js integration](https://www.apollographql.com/docs/react/integrations/nextjs) — explicit RSC/Client Component ownership and query preloading/hydration.
+
+## Security, observability, and delivery
+
+- [OWASP GraphQL Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/GraphQL_Cheat_Sheet.html) — input, authorization, batching/N+1, query limits, and error controls.
+- [OpenTelemetry JavaScript instrumentation](https://opentelemetry.io/docs/languages/js/instrumentation/) and [semantic conventions](https://opentelemetry.io/docs/specs/semconv/) — initialize before application modules, propagate context, and use standardized attributes.
+- [GitHub Actions secure use](https://docs.github.com/en/actions/reference/security/secure-use) and [artifact attestations](https://docs.github.com/en/actions/concepts/security/artifact-attestations) — immutable action references, minimum permissions, dependency review, and provenance.
