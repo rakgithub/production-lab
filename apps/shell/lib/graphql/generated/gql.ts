@@ -15,12 +15,18 @@ import * as types from './graphql';
  * Learn more about it here: https://the-guild.dev/graphql/codegen/plugins/presets/preset-client#reducing-bundle-size
  */
 type Documents = {
+    "query GetDashboard {\n  dashboard {\n    counts {\n      total\n      active\n      planned\n      paused\n    }\n    recentActivities {\n      id\n      projectId\n      type\n      message\n      createdAt\n    }\n  }\n}": typeof types.GetDashboardDocument,
     "query GetProjects {\n  projects {\n    totalCount\n    nodes {\n      id\n      name\n      status\n      owner {\n        id\n        name\n      }\n      updatedAt\n      version\n    }\n    pageInfo {\n      endCursor\n      hasNextPage\n    }\n  }\n}": typeof types.GetProjectsDocument,
 };
 const documents: Documents = {
+    "query GetDashboard {\n  dashboard {\n    counts {\n      total\n      active\n      planned\n      paused\n    }\n    recentActivities {\n      id\n      projectId\n      type\n      message\n      createdAt\n    }\n  }\n}": types.GetDashboardDocument,
     "query GetProjects {\n  projects {\n    totalCount\n    nodes {\n      id\n      name\n      status\n      owner {\n        id\n        name\n      }\n      updatedAt\n      version\n    }\n    pageInfo {\n      endCursor\n      hasNextPage\n    }\n  }\n}": types.GetProjectsDocument,
 };
 
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "query GetDashboard {\n  dashboard {\n    counts {\n      total\n      active\n      planned\n      paused\n    }\n    recentActivities {\n      id\n      projectId\n      type\n      message\n      createdAt\n    }\n  }\n}"): typeof import('./graphql').GetDashboardDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

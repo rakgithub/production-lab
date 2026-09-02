@@ -1,9 +1,14 @@
 import Link from "next/link";
 
-import { getFixtureDashboardData } from "@/features/dashboard/data/fixture-dashboard-data-source";
+import type { Dashboard } from "../api/graphql-dashboard-data-source";
 
-export default async function DashboardPage() {
-  const dashboard = await getFixtureDashboardData();
+type DashboardOverviewProps = {
+  dashboard: Dashboard;
+};
+
+export default function DashboardOverview({
+  dashboard,
+}: DashboardOverviewProps) {
 
   const cards = [
     { label: "Total projects", value: dashboard.counts.total },

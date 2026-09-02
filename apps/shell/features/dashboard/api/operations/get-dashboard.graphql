@@ -1,0 +1,17 @@
+query GetDashboard {
+  dashboard {
+    counts {
+      total
+      active
+      planned
+      paused
+    }
+    recentActivities {
+      id
+      projectId
+      type
+      message
+      createdAt
+    }
+  }
+}

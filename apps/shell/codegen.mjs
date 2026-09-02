@@ -1,6 +1,6 @@
 /** @type {import("@graphql-codegen/cli").CodegenConfig} */
 const config = {
-  schema: "../api/src/transport/graphql/schema/*.graphql",
+  schema: "../api/src/**/*.graphql",
   documents: "features/**/*.graphql",
   generates: {
     "./lib/graphql/generated/": {

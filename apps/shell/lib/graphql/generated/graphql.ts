@@ -4,10 +4,21 @@ type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K] };
 /** Internal type. DO NOT USE DIRECTLY. */
 export type Incremental<T> = T | { [P in keyof T]?: P extends ' $fragmentName' | '__typename' ? T[P] : never };
 import type { DocumentTypeDecoration } from '@graphql-typed-document-node/core';
+export type ActivityType =
+  | 'DEPLOYMENT_COMPLETED'
+  | 'DESCRIPTION_UPDATED'
+  | 'INCIDENT_CREATED'
+  | 'STATUS_CHANGED';
+
 export type ProjectStatus =
   | 'ACTIVE'
   | 'PAUSED'
   | 'PLANNED';
+
+export type GetDashboardQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type GetDashboardQuery = { dashboard: { counts: { total: number, active: number, planned: number, paused: number }, recentActivities: Array<{ id: string, projectId: string, type: ActivityType, message: string, createdAt: string }> } };
 
 export type GetProjectsQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -33,6 +44,25 @@ export class TypedDocumentString<TResult, TVariables>
   }
 }
 
+export const GetDashboardDocument = new TypedDocumentString(`
+    query GetDashboard {
+  dashboard {
+    counts {
+      total
+      active
+      planned
+      paused
+    }
+    recentActivities {
+      id
+      projectId
+      type
+      message
+      createdAt
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<GetDashboardQuery, GetDashboardQueryVariables>;
 export const GetProjectsDocument = new TypedDocumentString(`
     query GetProjects {
   projects {
