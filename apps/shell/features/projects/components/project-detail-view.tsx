@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import type { Activity, Project } from "../model";
+import { ProjectStatusEditor } from "./project-status-editor";
 
 type ProjectDetailViewProps = {
   project: Project;
@@ -24,6 +25,12 @@ export function ProjectDetailView({
           {project.status} · Owned by {project.owner.name}
         </p>
       </header>
+
+      <ProjectStatusEditor
+        initialStatus={project.status}
+        initialVersion={project.version}
+        projectId={project.id}
+      />
 
       <section>
         <h2 className="text-xl font-semibold">Recent activity</h2>

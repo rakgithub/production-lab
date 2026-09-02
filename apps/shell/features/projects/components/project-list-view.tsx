@@ -3,6 +3,9 @@ import Link from "next/link";
 import type { Project } from "../model";
 import type { ProjectListResult } from "../project-data-source";
 import type { ProjectSearchParams } from "../project-search-params";
+import { ProjectFilters } from "./project-filters";
+import { ProjectPagination } from "./project-pagination";
+import { ProjectSortSelect } from "./project-sort-select";
 
 type ProjectListViewProps = {
   projects: Project[];
@@ -26,9 +29,13 @@ export function ProjectListView({
         </p>
       </header>
 
-      <p className="text-sm text-slate-600">
-        Search: {filters.query || "None"} · Status: {filters.status}
-      </p>
+      <div className="grid gap-4 md:grid-cols-[1fr_auto]">
+        <ProjectFilters filters={filters} key={filters.query} />
+        <ProjectSortSelect
+          direction={filters.direction}
+          sort={filters.sort}
+        />
+      </div>
 
       {projects.length === 0 ? (
         <p>No projects match your filters.</p>
@@ -54,15 +61,7 @@ export function ProjectListView({
         </ul>
       )}
 
-      {pageInfo.hasNextPage && pageInfo.endCursor ? (
-        <Link
-          href={`/projects?after=${encodeURIComponent(
-            pageInfo.endCursor,
-          )}`}
-        >
-          Next
-        </Link>
-      ) : null}
+      <ProjectPagination filters={filters} pageInfo={pageInfo} />
     </main>
   );
 }

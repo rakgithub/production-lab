@@ -5,7 +5,7 @@ import type {
 } from "../project-data-source";
 import type { Project, ProjectStatus } from "../model";
 
-import { projects } from "./project-fixtures";
+import { activities, projects } from "./project-fixtures";
 
 function compareProjects(
   left: Project,
@@ -91,10 +91,23 @@ export const fixtureProjectDataSource: ProjectDataSource = {
       throw new Error("Project version conflict");
     }
 
-    return {
+    const updatedProject: Project = {
       ...project,
       status,
+      updatedAt: new Date().toISOString(),
       version: project.version + 1,
     };
+
+    Object.assign(project, updatedProject);
+
+    activities.unshift({
+      id: `activity-${id}-status-${updatedProject.version}`,
+      projectId: id,
+      type: "STATUS_CHANGED",
+      message: `${project.name} status changed from ${project.status} to ${status}`,
+      createdAt: updatedProject.updatedAt,
+    });
+
+    return updatedProject;
   },
 };
