@@ -1,0 +1,18 @@
+enum ActivityType {
+  STATUS_CHANGED
+  DEPLOYMENT_COMPLETED
+  DESCRIPTION_UPDATED
+  INCIDENT_CREATED
+}
+
+type Activity {
+  id: ID!
+  projectId: ID!
+  type: ActivityType!
+  message: String!
+  createdAt: DateTime!
+}
+
+extend type Query {
+  recentActivity(projectId: ID!, limit: Int! = 20): [Activity!]!
+}

@@ -1,0 +1,20 @@
+query GetProjects {
+  projects {
+    totalCount
+    nodes {
+      id
+      name
+      status
+      owner {
+        id
+        name
+      }
+      updatedAt
+      version
+    }
+    pageInfo {
+      endCursor
+      hasNextPage
+    }
+  }
+}

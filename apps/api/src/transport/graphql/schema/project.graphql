@@ -1,0 +1,96 @@
+enum ProjectStatus {
+  PLANNED
+  ACTIVE
+  PAUSED
+}
+
+enum ProjectSortField {
+  NAME
+  UPDATED_AT
+}
+
+enum SortDirection {
+  ASC
+  DESC
+}
+
+scalar DateTime
+
+type User {
+  id: ID!
+  name: String!
+}
+
+type Project {
+  id: ID!
+  name: String!
+  status: ProjectStatus!
+  owner: User!
+  updatedAt: DateTime!
+  version: Int!
+}
+
+type ProjectEdge {
+  cursor: String!
+  node: Project!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+type ProjectConnection {
+  edges: [ProjectEdge!]!
+  nodes: [Project!]!
+  totalCount: Int!
+  pageInfo: PageInfo!
+}
+
+input ProjectFilterInput {
+  query: String
+  status: ProjectStatus
+}
+
+input ProjectSortInput {
+  field: ProjectSortField! = UPDATED_AT
+  direction: SortDirection! = DESC
+}
+
+input UpdateProjectStatusInput {
+  projectId: ID!
+  status: ProjectStatus!
+  expectedVersion: Int!
+  clientMutationId: ID!
+}
+
+type UserError {
+  code: String!
+  message: String!
+  field: [String!]
+}
+
+type UpdateProjectStatusPayload {
+  project: Project
+  activity: Activity
+  userErrors: [UserError!]!
+  clientMutationId: ID!
+}
+
+type Query {
+  projects(
+    filter: ProjectFilterInput
+    sort: ProjectSortInput
+    first: Int = 20
+    after: String
+    last: Int
+    before: String
+  ): ProjectConnection!
+  project(id: ID!): Project
+}
+
+type Mutation {
+  updateProjectStatus(input: UpdateProjectStatusInput!): UpdateProjectStatusPayload!
+}
