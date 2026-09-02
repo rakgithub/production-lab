@@ -1,6 +1,8 @@
-import { ProjectListView } from "@/features/projects/components/project-list-view";
-import { getProjects } from "@/features/projects/data/graphql-project-data-source";
-import { parseProjectSearchParams } from "@/features/projects/project-search-params";
+import {
+  parseProjectSearchParams,
+  ProjectListView,
+} from "@/features/projects";
+import { getProjects } from "@/features/projects/server";
 
 type ProjectsPageProps = {
   searchParams: Promise<

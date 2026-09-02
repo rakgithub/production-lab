@@ -2,10 +2,10 @@ import type {
   ProjectDataSource,
   ProjectListInput,
   ProjectListResult,
-} from "../project-data-source";
-import type { Project, ProjectStatus } from "../model";
+} from "../model/project-repository";
+import type { Project, ProjectStatus } from "../model/project";
 
-import { activities, projects } from "./project-fixtures";
+import { activities, projects } from "./fixtures/project-fixtures";
 
 function compareProjects(
   left: Project,

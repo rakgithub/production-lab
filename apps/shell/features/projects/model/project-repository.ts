@@ -1,4 +1,4 @@
-import type { Project, ProjectStatus } from "./model";
+import type { Project, ProjectStatus } from "./project";
 
 export type ProjectListInput = {
   query?: string;

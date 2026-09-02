@@ -1,7 +1,7 @@
 import {
   activities,
   projects,
-} from "@/features/projects/data/project-fixtures";
+} from "@/features/projects/api/fixtures/project-fixtures";
 
 export async function getFixtureDashboardData() {
   return {

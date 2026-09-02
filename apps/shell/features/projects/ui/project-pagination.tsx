@@ -2,9 +2,9 @@
 
 import { useRouter } from "next/navigation";
 
-import { useProjectUrl } from "../hooks/use-project-url";
-import type { ProjectListResult } from "../project-data-source";
-import type { ProjectSearchParams } from "../project-search-params";
+import { useProjectUrl } from "../lib/use-project-url";
+import type { ProjectListResult } from "../model/project-repository";
+import type { ProjectSearchParams } from "../lib/parse-project-search-params";
 
 type ProjectPaginationProps = {
   filters: ProjectSearchParams;

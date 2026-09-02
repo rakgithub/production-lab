@@ -1,4 +1,4 @@
-import { Activity, Project, User } from "../model";
+import type { Activity, Project, User } from "../../model/project";
 
 // export const users: User[] = [
 //   { id: "user-sarah", name: "Sarah" },

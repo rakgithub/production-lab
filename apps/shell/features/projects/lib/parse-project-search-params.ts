@@ -1,4 +1,4 @@
-import type { ProjectFilterStatus } from "./model";
+import type { ProjectFilterStatus } from "../model/project";
 
 export type ProjectSearchParams = {
   query: string;

@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import type { Activity, Project } from "../model";
+import type { Activity, Project } from "../model/project";
 import { ProjectStatusEditor } from "./project-status-editor";
 
 type ProjectDetailViewProps = {

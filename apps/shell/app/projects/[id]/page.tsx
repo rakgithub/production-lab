@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
 
 import { getActivitiesByProjectId } from "@/features/activity/data/fixture-activity-data-source";
-import { ProjectDetailView } from "@/features/projects/components/project-detail-view";
-import { fixtureProjectDataSource } from "@/features/projects/data/fixture-project-data-source";
+import {
+  ProjectDetailView,
+} from "@/features/projects";
+import { fixtureProjectDataSource } from "@/features/projects/server";
 
 type ProjectDetailPageProps = {
   params: Promise<{

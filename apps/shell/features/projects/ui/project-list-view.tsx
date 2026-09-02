@@ -1,8 +1,8 @@
 import Link from "next/link";
 
-import type { Project } from "../model";
-import type { ProjectListResult } from "../project-data-source";
-import type { ProjectSearchParams } from "../project-search-params";
+import type { Project } from "../model/project";
+import type { ProjectListResult } from "../model/project-repository";
+import type { ProjectSearchParams } from "../lib/parse-project-search-params";
 import { ProjectFilters } from "./project-filters";
 import { ProjectPagination } from "./project-pagination";
 import { ProjectSortSelect } from "./project-sort-select";

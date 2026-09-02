@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
-import { fixtureProjectDataSource } from "../data/fixture-project-data-source";
-import type { ProjectStatus } from "../model";
+import { fixtureProjectDataSource } from "../fixture-project-data-source";
+import type { ProjectStatus } from "../../model/project";
 
 const projectStatuses: ProjectStatus[] = ["PLANNED", "ACTIVE", "PAUSED"];
 

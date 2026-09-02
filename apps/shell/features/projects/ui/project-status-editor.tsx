@@ -2,8 +2,8 @@
 
 import { useState, useTransition } from "react";
 
-import { updateFixtureProjectStatus } from "../actions/update-fixture-project-status";
-import type { ProjectStatus } from "../model";
+import { updateFixtureProjectStatus } from "../api/actions/update-fixture-project-status";
+import type { ProjectStatus } from "../model/project";
 
 type ProjectStatusEditorProps = {
   initialStatus: ProjectStatus;

@@ -1,7 +1,7 @@
 "use client";
 
-import { useProjectUrl } from "../hooks/use-project-url";
-import type { ProjectSearchParams } from "../project-search-params";
+import { useProjectUrl } from "../lib/use-project-url";
+import type { ProjectSearchParams } from "../lib/parse-project-search-params";
 
 type ProjectSortSelectProps = {
   direction: ProjectSearchParams["direction"];

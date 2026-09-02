@@ -1,4 +1,4 @@
-import { activities } from "@/features/projects/data/project-fixtures";
+import { activities } from "@/features/projects/api/fixtures/project-fixtures";
 
 export async function getActivitiesByProjectId(
   projectId: string,

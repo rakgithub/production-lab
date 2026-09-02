@@ -3,7 +3,7 @@ import "server-only";
 import { executeGraphQL } from "@/lib/graphql/execute";
 import { GetProjectsDocument } from "@/lib/graphql/generated/graphql";
 
-import type { ProjectListResult } from "../project-data-source";
+import type { ProjectListResult } from "../model/project-repository";
 
 export async function getProjects(): Promise<ProjectListResult> {
   const data = await executeGraphQL(GetProjectsDocument);
