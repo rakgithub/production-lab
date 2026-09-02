@@ -1,0 +1,15 @@
+type DashboardCounts {
+  total: Int!
+  active: Int!
+  planned: Int!
+  paused: Int!
+}
+
+type Dashboard {
+  counts: DashboardCounts!
+  recentActivities: [Activity!]!
+}
+
+extend type Query {
+  dashboard: Dashboard!
+}

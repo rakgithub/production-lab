@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import { DateTimeResolver } from "graphql-scalars";
 import { createSchema, createYoga } from "graphql-yoga";
 
+import { dashboardResolvers } from "./modules/dashboard/dashboard.resolvers.js";
+
 type ProjectStatus = "PLANNED" | "ACTIVE" | "PAUSED";
 
 type Project = {
@@ -29,12 +31,28 @@ async function getProjectsFromService(): Promise<Project[]> {
   return payload.projects;
 }
 
-function readSchemaFile(fileName: string) {
-  const builtFile = new URL(`./transport/graphql/schema/${fileName}`, import.meta.url);
-  const sourceFile = new URL(
-    `../src/transport/graphql/schema/${fileName}`,
-    import.meta.url,
-  );
+async function getProjects() {
+  const projects = await getProjectsFromService();
+
+  return {
+    nodes: projects,
+    edges: projects.map((project) => ({
+      cursor: project.id,
+      node: project,
+    })),
+    totalCount: projects.length,
+    pageInfo: {
+      hasNextPage: false,
+      hasPreviousPage: false,
+      startCursor: projects[0]?.id ?? null,
+      endCursor: projects.at(-1)?.id ?? null,
+    },
+  };
+}
+
+function readSchemaFile(relativePath: string) {
+  const builtFile = new URL(`./${relativePath}`, import.meta.url);
+  const sourceFile = new URL(`../src/${relativePath}`, import.meta.url);
 
   return readFileSync(
     existsSync(fileURLToPath(builtFile)) ? builtFile : sourceFile,
@@ -46,28 +64,16 @@ const yoga = createYoga({
   graphqlEndpoint: "/graphql",
   healthCheckEndpoint: "/health",
   schema: createSchema({
-    typeDefs: [readSchemaFile("project.graphql"), readSchemaFile("activity.graphql")],
+    typeDefs: [
+      readSchemaFile("transport/graphql/schema/project.graphql"),
+      readSchemaFile("transport/graphql/schema/activity.graphql"),
+      readSchemaFile("modules/dashboard/dashboard.graphql"),
+    ],
     resolvers: {
       DateTime: DateTimeResolver,
       Query: {
-        projects: async () => {
-          const projects = await getProjectsFromService();
-
-          return {
-            nodes: projects,
-            edges: projects.map((project) => ({
-              cursor: project.id,
-              node: project,
-            })),
-            totalCount: projects.length,
-            pageInfo: {
-              hasNextPage: false,
-              hasPreviousPage: false,
-              startCursor: projects[0]?.id ?? null,
-              endCursor: projects.at(-1)?.id ?? null,
-            },
-          };
-        },
+        ...dashboardResolvers.Query,
+        projects: getProjects,
       },
     },
   }),
