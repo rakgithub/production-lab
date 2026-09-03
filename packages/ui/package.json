@@ -3,10 +3,18 @@
   "version": "0.0.0",
   "description": "",
   "private": true,
-  "exports": {
-    ".": "./src/index.ts"
+  "imports": {
+    "#components/*": "./src/components/*.tsx",
+    "#hooks/*": "./src/hooks/*.ts",
+    "#lib/*": "./src/lib/*.ts"
   },
-  "main": "index.js",
+  "exports": {
+    ".": "./src/index.ts",
+    "./globals.css": "./src/styles/globals.css",
+    "./components/*": "./src/components/*.tsx",
+    "./hooks/*": "./src/hooks/*.ts",
+    "./lib/*": "./src/lib/*.ts"
+  },
   "scripts": {
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
