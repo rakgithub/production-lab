@@ -4,14 +4,14 @@
   "description": "",
   "private": true,
   "imports": {
-    "#components/*": "./src/components/*.tsx",
+    "#components/*": "./src/components/*/index.ts",
     "#hooks/*": "./src/hooks/*.ts",
     "#lib/*": "./src/lib/*.ts"
   },
   "exports": {
     ".": "./src/index.ts",
     "./globals.css": "./src/styles/globals.css",
-    "./components/*": "./src/components/*.tsx",
+    "./components/*": "./src/components/*/index.ts",
     "./hooks/*": "./src/hooks/*.ts",
     "./lib/*": "./src/lib/*.ts"
   },
@@ -34,6 +34,7 @@
     "@storybook/addon-mcp": "^0.7.0",
     "@storybook/addon-vitest": "^10.5.10",
     "@storybook/react-vite": "^10.5.10",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.18",
     "@vitest/browser-playwright": "^4.1.11",
     "@vitest/coverage-v8": "^4.1.11",
@@ -42,12 +43,23 @@
     "globals": "^17.11.0",
     "playwright": "^1.62.1",
     "react": "19.2.8",
+    "react-dom": "19.2.8",
     "storybook": "^10.5.10",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.68.0",
     "vitest": "^4.1.11"
   },
   "peerDependencies": {
     "react": "^19.0.0"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.7.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.39.0",
+    "shadcn": "^4.19.1",
+    "tailwind-merge": "^3.6.0",
+    "tw-animate-css": "^1.4.0"
   }
 }

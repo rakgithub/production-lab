@@ -184,12 +184,21 @@ packages/ui/
 │   └── preview.ts
 ├── src/
 │   ├── components/
-│   │   ├── button.tsx
-│   │   ├── button.stories.tsx
-│   │   ├── badge.tsx
-│   │   ├── badge.stories.tsx
-│   │   ├── card.tsx
-│   │   ├── card.stories.tsx
+│   │   ├── button/
+│   │   │   ├── button.tsx
+│   │   │   ├── button.stories.tsx
+│   │   │   ├── button.test.tsx
+│   │   │   └── index.ts
+│   │   ├── badge/
+│   │   │   ├── badge.tsx
+│   │   │   ├── badge.stories.tsx
+│   │   │   ├── badge.test.tsx
+│   │   │   └── index.ts
+│   │   └── card/
+│   │       ├── card.tsx
+│   │       ├── card.stories.tsx
+│   │       ├── card.test.tsx
+│   │       └── index.ts
 │   │   └── ...
 │   ├── hooks/
 │   │   └── ...                 # Only reusable UI hooks
@@ -256,7 +265,7 @@ An optional root barrel can remain for compatibility, but explicit subpaths make
     ```json
     {
       "imports": {
-        "#components/*": "./src/components/*.tsx",
+        "#components/*": "./src/components/*/index.ts",
         "#hooks/*": "./src/hooks/*.ts",
         "#lib/*": "./src/lib/*.ts"
       }
@@ -276,7 +285,7 @@ An optional root barrel can remain for compatibility, but explicit subpaths make
       "exports": {
         ".": "./src/index.ts",
         "./globals.css": "./src/styles/globals.css",
-        "./components/*": "./src/components/*.tsx",
+        "./components/*": "./src/components/*/index.ts",
         "./hooks/*": "./src/hooks/*.ts",
         "./lib/*": "./src/lib/*.ts"
       }
@@ -460,8 +469,10 @@ An optional root barrel can remain for compatibility, but explicit subpaths make
   - **How:** Use:
 
     ```text
-    src/components/button.tsx
-    src/components/button.stories.tsx
+    src/components/button/button.tsx
+    src/components/button/button.stories.tsx
+    src/components/button/button.test.tsx
+    src/components/button/index.ts
     ```
 
     Follow Component Story Format with `satisfies Meta<typeof Component>` and `StoryObj<typeof meta>`. See [Storybook CSF](https://storybook.js.org/docs/api/csf).

@@ -3,6 +3,7 @@
 import { dirname } from "path"
 import { fileURLToPath } from "url"
 import type { StorybookConfig } from '@storybook/react-vite'
+import tailwindcss from '@tailwindcss/vite'
 
 /**
 * This function is used to resolve the absolute path of a package.
@@ -21,6 +22,11 @@ const config: StorybookConfig = {
     getAbsolutePath('@storybook/addon-docs'),
     getAbsolutePath('@storybook/addon-mcp')
   ],
-  "framework": getAbsolutePath('@storybook/react-vite')
+  "framework": getAbsolutePath('@storybook/react-vite'),
+  async viteFinal(config) {
+    config.plugins = [...(config.plugins ?? []), tailwindcss()]
+
+    return config
+  }
 };
 export default config;
