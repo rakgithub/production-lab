@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Card, CardContent } from "@repo/ui/components/card";
 
 import type { Project } from "../model/project";
 import type { ProjectListResult } from "../model/project-repository";
@@ -6,6 +7,7 @@ import type { ProjectSearchParams } from "../lib/parse-project-search-params";
 import { ProjectFilters } from "./project-filters";
 import { ProjectPagination } from "./project-pagination";
 import { ProjectSortSelect } from "./project-sort-select";
+import { ProjectStatusBadge } from "./project-status-badge";
 
 type ProjectListViewProps = {
   projects: Project[];
@@ -42,20 +44,25 @@ export function ProjectListView({
       ) : (
         <ul className="space-y-3">
           {projects.map((project) => (
-            <li
-              key={project.id}
-              className="rounded-lg border border-slate-200 p-4"
-            >
-              <Link
-                href={`/projects/${project.id}`}
-                className="font-medium hover:underline"
-              >
-                {project.name}
-              </Link>
+            <li key={project.id}>
+              <Card>
+                <CardContent className="flex items-start justify-between gap-4">
+                  <div>
+                    <Link
+                      href={`/projects/${project.id}`}
+                      className="font-medium hover:underline"
+                    >
+                      {project.name}
+                    </Link>
 
-              <p className="text-sm text-slate-600">
-                {project.status} · {project.owner.name}
-              </p>
+                    <p className="text-sm text-muted-foreground">
+                      Owned by {project.owner.name}
+                    </p>
+                  </div>
+
+                  <ProjectStatusBadge status={project.status} />
+                </CardContent>
+              </Card>
             </li>
           ))}
         </ul>

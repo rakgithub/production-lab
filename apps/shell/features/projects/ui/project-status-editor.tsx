@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Button } from "@repo/ui/components/button";
 
 import { updateFixtureProjectStatus } from "../api/actions/update-fixture-project-status";
 import type { ProjectStatus } from "../model/project";
@@ -77,14 +78,13 @@ export function ProjectStatusEditor({
           </select>
         </label>
 
-        <button
-          className="rounded-md bg-slate-950 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50"
+        <Button
           disabled={isPending || selectedStatus === currentStatus}
           onClick={saveStatus}
           type="button"
         >
           {isPending ? "Saving…" : "Save status"}
-        </button>
+        </Button>
       </div>
 
       <p aria-live="polite" className="min-h-5 text-sm">

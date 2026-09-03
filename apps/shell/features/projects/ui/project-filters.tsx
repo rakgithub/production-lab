@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Button } from "@repo/ui/components/button";
 
 import { useProjectUrl } from "../lib/use-project-url";
 import type { ProjectFilterStatus } from "../model/project";
@@ -75,14 +76,15 @@ export function ProjectFilters({ filters }: ProjectFiltersProps) {
       </label>
 
       {hasFilters ? (
-        <button
-          className="self-end rounded-md border border-slate-300 px-3 py-2 disabled:opacity-50"
+        <Button
+          className="self-end"
           disabled={isPending}
           onClick={clearFilters}
           type="button"
+          variant="outline"
         >
           Clear filters
-        </button>
+        </Button>
       ) : null}
     </div>
   );

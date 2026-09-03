@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { Card, CardContent } from "@repo/ui/components/card";
 
 import type { Activity, Project } from "../model/project";
 import { ProjectStatusEditor } from "./project-status-editor";
+import { ProjectStatusBadge } from "./project-status-badge";
 
 type ProjectDetailViewProps = {
   project: Project;
@@ -21,9 +23,10 @@ export function ProjectDetailView({
       <header>
         <h1 className="text-3xl font-semibold">{project.name}</h1>
 
-        <p className="text-slate-600">
-          {project.status} · Owned by {project.owner.name}
-        </p>
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <ProjectStatusBadge status={project.status} />
+          <span>Owned by {project.owner.name}</span>
+        </div>
       </header>
 
       <ProjectStatusEditor
@@ -40,11 +43,10 @@ export function ProjectDetailView({
         ) : (
           <ul className="mt-4 space-y-3">
             {activities.map((activity) => (
-              <li
-                key={activity.id}
-                className="rounded border border-slate-200 p-4"
-              >
-                {activity.message}
+              <li key={activity.id}>
+                <Card>
+                  <CardContent>{activity.message}</CardContent>
+                </Card>
               </li>
             ))}
           </ul>

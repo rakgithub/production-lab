@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Card, CardContent } from "@repo/ui/components/card";
 
 import type { Dashboard } from "../api/graphql-dashboard-data-source";
 
@@ -31,15 +32,12 @@ export default function DashboardOverview({
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {cards.map((card) => (
-          <article
-            key={card.label}
-            className="rounded-lg border border-slate-200 p-5"
-          >
-            <p className="text-sm text-slate-600">{card.label}</p>
-            <p className="mt-2 text-3xl font-semibold">
-              {card.value}
-            </p>
-          </article>
+          <Card key={card.label}>
+            <CardContent className="space-y-2">
+              <p className="text-sm text-muted-foreground">{card.label}</p>
+              <p className="text-3xl font-semibold">{card.value}</p>
+            </CardContent>
+          </Card>
         ))}
       </section>
 
@@ -48,11 +46,10 @@ export default function DashboardOverview({
 
         <ul className="mt-4 space-y-3">
           {dashboard.recentActivities.map((activity) => (
-            <li
-              key={activity.id}
-              className="rounded border border-slate-200 p-4"
-            >
-              {activity.message}
+            <li key={activity.id}>
+              <Card>
+                <CardContent>{activity.message}</CardContent>
+              </Card>
             </li>
           ))}
         </ul>

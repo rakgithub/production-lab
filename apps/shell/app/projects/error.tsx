@@ -1,5 +1,7 @@
 "use client";
 
+import { Button } from "@repo/ui/components/button";
+
 type ProjectsErrorProps = {
   error: Error & { digest?: string };
   reset: () => void;
@@ -16,13 +18,12 @@ export default function ProjectsError({
 
       <p>Please try again.</p>
 
-      <button
+      <Button
         type="button"
         onClick={reset}
-        className="rounded bg-slate-950 px-4 py-2 text-white"
       >
         Retry
-      </button>
+      </Button>
     </main>
   );
 }
