@@ -29,6 +29,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Playwright Chromium
+        run: pnpm --filter @repo/ui exec playwright install --with-deps chromium
+
       - name: Check generated GraphQL operations
         run: pnpm --filter shell codegen:check
 
