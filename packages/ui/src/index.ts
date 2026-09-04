@@ -9,3 +9,4 @@ export {
   CardHeader,
   CardTitle,
 } from "./components/card";
+export { Input } from "./components/input";

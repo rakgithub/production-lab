@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Card, CardContent } from "@repo/ui/components/card";
 
 import type { Dashboard } from "../api/graphql-dashboard-data-source";
+import { Button } from "@repo/ui";
 
 type DashboardOverviewProps = {
   dashboard: Dashboard;
@@ -30,6 +31,10 @@ export default function DashboardOverview({
         </p>
       </header>
 
+      <Button nativeButton={false} render={<Link href="/users" />}>
+        Add users
+      </Button>
+
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {cards.map((card) => (
           <Card key={card.label}>
@@ -55,9 +60,8 @@ export default function DashboardOverview({
         </ul>
       </section>
 
-      <Link href="/projects" className="underline">
-        View all projects
-      </Link>
+        <Button nativeButton={false} render={ <Link href="/projects">
+      </Link>}>        View all projects</Button>
     </main>
   );
 }

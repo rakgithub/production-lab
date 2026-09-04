@@ -1,5 +1,15 @@
-query GetProjects {
-  projects {
+query GetProjects(
+  $filter: ProjectFilterInput
+  $sort: ProjectSortInput
+  $first: Int!
+  $after: String
+) {
+  projects(
+    filter: $filter
+    sort: $sort
+    first: $first
+    after: $after
+  ) {
     totalCount
     nodes {
       id

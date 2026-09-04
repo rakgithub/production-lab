@@ -6,7 +6,6 @@ import type { ProjectListResult } from "../model/project-repository";
 import type { ProjectSearchParams } from "../lib/parse-project-search-params";
 import { ProjectFilters } from "./project-filters";
 import { ProjectPagination } from "./project-pagination";
-import { ProjectSortSelect } from "./project-sort-select";
 import { ProjectStatusBadge } from "./project-status-badge";
 
 type ProjectListViewProps = {
@@ -31,12 +30,12 @@ export function ProjectListView({
         </p>
       </header>
 
+       <Link href="/dashboard" className="underline">
+       Back
+      </Link>
+
       <div className="grid gap-4 md:grid-cols-[1fr_auto]">
-        <ProjectFilters filters={filters} key={filters.query} />
-        <ProjectSortSelect
-          direction={filters.direction}
-          sort={filters.sort}
-        />
+        <ProjectFilters filters={filters} />
       </div>
 
       {projects.length === 0 ? (
